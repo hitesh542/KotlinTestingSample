@@ -1,54 +1,72 @@
 package com.hb.sampleapplicationdemo.ui.login
 
-import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import android.util.Patterns
-import com.hb.sampleapplicationdemo.data.LoginRepository
-import com.hb.sampleapplicationdemo.data.Result
-
-import com.hb.sampleapplicationdemo.R
+import androidx.lifecycle.viewModelScope
+import com.hb.sampleapplicationdemo.ApiResponse
+import com.hb.sampleapplicationdemo.LoginModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 class LoginViewModel(private val loginRepository: LoginRepository) : ViewModel() {
 
-    private val _loginForm = MutableLiveData<LoginFormState>()
-    val loginFormState: LiveData<LoginFormState> = _loginForm
+    val actionObservable = MutableLiveData<LoginAction>()
+    val loginApiObservable = MutableLiveData<ApiResponse<LoginModel>>()
 
-    private val _loginResult = MutableLiveData<LoginResult>()
-    val loginResult: LiveData<LoginResult> = _loginResult
+    enum class LoginAction {
+        WRONG_USERNAME,
+        WRONG_PASS,
+        SHOW_PROGRESS,
+        HIDE_PROGRESS,
+        SUCCESS
+    }
 
-    fun login(username: String, password: String) {
-        // can be launched in a separate asynchronous job
-        val result = loginRepository.login(username, password)
+    /**
+     * This method is used ot login with [userName] and [pass]
+     *
+     * @param userName: User name entered by user as String
+     * @param pass: Password entered by user as String
+     */
+    fun login(userName: String, pass: String) {
+        if (!Validator.validateUsername(userName)) {
+            postActionToView(LoginAction.WRONG_USERNAME)
+            return
+        }
+        if (!Validator.validatePass(pass)) {
+            postActionToView(LoginAction.WRONG_PASS)
+            return
+        }
 
-        if (result is Result.Success) {
-            _loginResult.value = LoginResult(success = LoggedInUserView(displayName = result.data.displayName))
-        } else {
-            _loginResult.value = LoginResult(error = R.string.login_failed)
+        //call api here
+        postActionToView(LoginAction.SHOW_PROGRESS)
+        viewModelScope.launch {
+            val loginModel = loginRepository.callLoginApi(userName, pass)
+            postActionToView(LoginAction.HIDE_PROGRESS)
+            if (loginModel.isSuccess) {
+                loginApiObservable.postValue(
+                    ApiResponse(
+                        isSuccess = true,
+                        result = loginModel,
+                        message = null
+                    ))
+            } else {
+                loginApiObservable.postValue(
+                    ApiResponse(
+                        isSuccess = false,
+                        result = loginModel,
+                        message = null
+                    )
+                )
+            }
         }
     }
 
-    fun loginDataChanged(username: String, password: String) {
-        if (!isUserNameValid(username)) {
-            _loginForm.value = LoginFormState(usernameError = R.string.invalid_username)
-        } else if (!isPasswordValid(password)) {
-            _loginForm.value = LoginFormState(passwordError = R.string.invalid_password)
-        } else {
-            _loginForm.value = LoginFormState(isDataValid = true)
-        }
+    private fun postActionToView(action: LoginAction) {
+        actionObservable.value = (action)
     }
 
-    // A placeholder username validation check
-    private fun isUserNameValid(username: String): Boolean {
-        return if (username.contains('@')) {
-            Patterns.EMAIL_ADDRESS.matcher(username).matches()
-        } else {
-            username.isNotBlank()
-        }
-    }
-
-    // A placeholder password validation check
-    private fun isPasswordValid(password: String): Boolean {
-        return password.length > 5
-    }
+    suspend fun testCallLogin(userName: String, pass: String) =
+        loginRepository.callLoginApi(userName, pass)
 }
